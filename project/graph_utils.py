@@ -14,9 +14,7 @@ class GraphInfo(NamedTuple):
 def get_graph_info(graph_name: str) -> GraphInfo:
     graph_path = cfpq_data.download(graph_name)
     graph = cfpq_data.graph_from_csv(graph_path)
-    labels = {
-        label for _, _, label in graph.edges(data="label") if label is not None
-    }
+    labels = {label for _, _, label in graph.edges(data="label") if label is not None}
 
     return GraphInfo(graph.number_of_nodes(), graph.number_of_edges(), labels)
 

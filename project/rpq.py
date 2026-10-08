@@ -41,47 +41,40 @@ def ms_bfs_based_rpq(
     graph_fa = AdjacencyMatrixFA(graph_to_nfa(graph, start_nodes, final_nodes))
     regex_fa = AdjacencyMatrixFA(regex_to_dfa(regex))
     starts = list(start_nodes)
-    shape = (len(starts), len(graph_fa.states))
+    regex_size = len(regex_fa.states)
+    shape = (len(starts) * regex_size, len(graph_fa.states))
 
-    initial = sparse.csr_matrix(
-        (
-            [True] * len(starts),
-            (
-                list(range(len(starts))),
-                [graph_fa.state_to_index[node] for node in starts],
-            ),
-        ),
-        shape=shape,
-        dtype=bool,
+    rows, columns = [], []
+    for source_index, start in enumerate(starts):
+        for state in regex_fa.start_states:
+            rows.append(source_index * regex_size + state)
+            columns.append(graph_fa.state_to_index[start])
+    frontier = sparse.csr_matrix(
+        ([True] * len(rows), (rows, columns)), shape=shape, dtype=bool
     )
-    frontier = [
-        initial.copy()
-        if state in regex_fa.start_states
-        else sparse.csr_matrix(shape, dtype=bool)
-        for state in range(len(regex_fa.states))
-    ]
-    visited = [matrix.copy() for matrix in frontier]
-    transitions = []
-    for symbol in graph_fa.matrices.keys() & regex_fa.matrices.keys():
-        sources, targets = regex_fa.matrices[symbol].nonzero()
-        transitions.extend(
-            (source, symbol, target) for source, target in zip(sources, targets)
+    visited = frontier.copy()
+
+    symbols = graph_fa.matrices.keys() & regex_fa.matrices.keys()
+    regex_transitions = {}
+    for symbol in symbols:
+        regex_transitions[symbol] = sparse.block_diag(
+            [regex_fa.matrices[symbol].transpose()] * len(starts), format="csr"
         )
 
-    while any(matrix.nnz for matrix in frontier):
-        expanded = [sparse.csr_matrix(shape, dtype=bool) for _ in regex_fa.states]
-        for source, symbol, target in transitions:
-            expanded[target] = (
-                expanded[target] + frontier[source] @ graph_fa.matrices[symbol]
+    while frontier.nnz:
+        expanded = sparse.csr_matrix(shape, dtype=bool)
+        for symbol in symbols:
+            expanded = expanded + (
+                regex_transitions[symbol] @ frontier @ graph_fa.matrices[symbol]
             )
 
-        frontier = [matrix > seen for matrix, seen in zip(expanded, visited)]
-        visited = [seen + matrix for seen, matrix in zip(visited, frontier)]
+        frontier = expanded > visited
+        visited = visited + frontier
 
     answer = set()
-    for state in regex_fa.final_states:
-        rows, columns = visited[state].nonzero()
-        for row, column in zip(rows, columns):
-            if column in graph_fa.final_states:
-                answer.add((starts[row], graph_fa.states[column].value))
+    rows, columns = visited.nonzero()
+    for row, column in zip(rows, columns):
+        source_index, state = divmod(row, regex_size)
+        if state in regex_fa.final_states and column in graph_fa.final_states:
+            answer.add((starts[source_index], graph_fa.states[column].value))
     return answer
